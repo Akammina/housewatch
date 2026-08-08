@@ -73,12 +73,24 @@ class AccountState:
         return math.sqrt(self._gap_m2 / self.gap_n) / self.gap_mean
 
 
+class GameStats:
+    """Per-game aggregate across ALL players, for the platform-level RTP monitor.
+    A cheat spread thin across accounts still shows up here."""
+    def __init__(self) -> None:
+        self.bets = 0
+        self.staked = 0
+        self.returned = 0
+        self.exp_return = 0.0
+        self.var_return = 0.0
+
+
 class Store:
     def __init__(self) -> None:
         self.accounts: dict[str, AccountState] = {}
         # reverse indexes for linkage: which accounts used a given device / ip
         self.device_accounts: dict[str, set[str]] = defaultdict(set)
         self.ip_accounts: dict[str, set[str]] = defaultdict(set)
+        self.games: dict[str, GameStats] = defaultdict(GameStats)
 
     def add_bet(self, bet: Bet) -> AccountState:
         acc = self.accounts.get(bet.account)
@@ -90,4 +102,12 @@ class Store:
             self.device_accounts[bet.device].add(bet.account)
         if bet.ip:
             self.ip_accounts[bet.ip].add(bet.account)
+        # platform-level game aggregate
+        rtp, std = stats_for(bet.game)
+        g = self.games[bet.game]
+        g.bets += 1
+        g.staked += bet.stake_cents
+        g.returned += bet.payout_cents
+        g.exp_return += bet.stake_cents * rtp
+        g.var_return += (bet.stake_cents * std) ** 2
         return acc

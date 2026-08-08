@@ -18,6 +18,7 @@ simulator injects synthetic fraud so you can watch the engine catch it live.
 | **Bot timing** | automated play | Humans bet irregularly; bots don't. Flags near-constant inter-bet gaps (machine-regular) or a superhuman sustained bet rate. |
 | **Multi-accounting** | bonus-abuse rings | Links accounts that share a device fingerprint or IP (union-find over the graph), then flags any cluster big enough to be a ring rather than a coincidence. |
 | **Loss-chasing** | player harm (responsible gambling) | Measures the *rate* of stake increases right after a loss. A chaser does it almost every time; a player with varied stakes doesn't. Tuned to avoid false positives. |
+| **Game integrity** (platform-level) | distributed / hidden cheating | Runs the same z-score on each game's *total* RTP across all players. Catches exploits that are spread thin across accounts or buried in a high-variance game, where no single account looks bad. |
 
 Each account gets a **0-100 risk score** with a severity level and a plain-English
 reason for every signal. Explainability is the point: an analyst has to trust why
@@ -58,6 +59,24 @@ Services talk over events (an ingest endpoint), not a shared database, so the
 platform and the monitor are decoupled. The engine keeps per-account running
 aggregates (expected return, variance, inter-bet gaps via Welford) so each event
 is scored in O(1) instead of rescanning history.
+
+## Trying to fool it (red-team)
+
+`python -m simulator.evade` runs an obvious attack and a smart evasion against each
+detector. Being honest about the limits matters more than pretending there are none:
+
+| Attack | Result |
+|--------|--------|
+| Obvious cheat / bot / ring | caught |
+| **Stealth cheat** (tiny edge) | evades - a small edge over few bets is below the noise floor; it's a statistical limit, detection improves as more bets accumulate |
+| **Cheat on a high-variance game** | evades per-account - the variance drowns the signal |
+| **Bot with human-like jitter** | evades timing analysis - robust bot detection needs behavioural signals, not just timing |
+| **Distributed ring** (unique device + IP per account) | evades linkage - nothing to join on without behavioural or payment-graph signals |
+| **Distributed exploit across many accounts** | **caught by the platform-level game-integrity monitor**, even though every account evades the per-account detectors |
+
+The takeaway that shaped the design: per-account detection has blind spots, so
+HouseWatch layers a platform-level monitor on top. A cheat can hide *who* is winning,
+but it can't hide that a game is paying more than it should.
 
 ## Run it
 

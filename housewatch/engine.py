@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-from .detectors import bot_timing, multi_account, responsible, win_rate
+from .detectors import bot_timing, multi_account, platform, responsible, win_rate
 from .events import Bet
 from .models import RiskProfile, Signal, level_for
 from .store import Store
@@ -31,6 +31,7 @@ class Engine:
         self.alerts: list[dict] = []            # recent alerts (bounded)
         self.multi_signals: dict[str, Signal] = {}
         self._prev_detectors: dict[str, set[str]] = {}
+        self._alerted_games: set[str] = set()
 
     def ingest(self, bet: Bet) -> list[dict]:
         self.store.add_bet(bet)
@@ -38,7 +39,28 @@ class Engine:
         self.multi_signals = multi_account.detect(self.store)
         touched = {bet.account} | set(self.multi_signals)
         alerts = [a for a in (self._rescore(acc) for acc in touched) if a]
+        alerts += self._platform_alerts()
         return alerts
+
+    def _platform_alerts(self) -> list[dict]:
+        out = []
+        for p in platform.detect(self.store):
+            if p["game"] in self._alerted_games:
+                continue
+            self._alerted_games.add(p["game"])
+            alert = {
+                "ts": time.time(),
+                "account": f"game:{p['game']}",
+                "score": round(p["score"], 1),
+                "level": level_for(p["score"]),
+                "category": "integrity",
+                "reason": p["reason"],
+                "detectors": ["platform_rtp"],
+            }
+            self.alerts.append(alert)
+            del self.alerts[:-200]
+            out.append(alert)
+        return out
 
     def _rescore(self, account: str) -> dict | None:
         acc = self.store.accounts[account]

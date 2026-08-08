@@ -3,7 +3,7 @@ accounts get flagged and honest ones don't (no false positives)."""
 from housewatch.engine import Engine
 from housewatch.events import Bet
 from housewatch.store import Store
-from housewatch.detectors import bot_timing, multi_account, responsible, win_rate
+from housewatch.detectors import bot_timing, multi_account, platform, responsible, win_rate
 
 
 def _acc(store: Store, bets: list[Bet]):
@@ -70,6 +70,20 @@ def test_responsible_flags_chaser_not_random():
     stakes = [1000, 2000, 1000, 5000, 1000, 2000, 1000] * 5
     bets2 = [Bet("varied", "dice", s, 0, ts=i * 5) for i, s in enumerate(stakes)]
     assert responsible.detect(_acc(store2, bets2)) is None
+
+
+def test_platform_monitor_catches_distributed_exploit():
+    # a slots exploit spread across 25 accounts: no single account is a big outlier,
+    # but the game's overall RTP is wrecked, which the platform monitor sees.
+    store = Store()
+    for a in range(25):
+        for i in range(120):
+            store.add_bet(Bet(f"x{a}", "slots", 2000, 6000 if i % 2 else 0, ts=i, device=f"d{a}"))
+    # an honest game running alongside, for contrast
+    for i in range(2500):
+        store.add_bet(Bet(f"h{i % 40}", "dice", 1000, 1980 if i % 2 else 0, ts=i, device="hd"))
+    games = {a["game"] for a in platform.detect(store)}
+    assert "slots" in games and "dice" not in games
 
 
 def test_engine_scores_and_alerts():
