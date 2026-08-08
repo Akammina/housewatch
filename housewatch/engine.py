@@ -37,6 +37,7 @@ class Engine:
         self._prev_detectors: dict[str, set[str]] = {}
         self._prev_global: set[str] = set()
         self._alerted_games: set[str] = set()
+        self.blocked_games: set[str] = set()   # kill switch: games auto-paused on an integrity alert
 
     def ingest(self, bet: Bet) -> list[dict]:
         self.store.add_bet(bet)
@@ -57,6 +58,7 @@ class Engine:
             if p["game"] in self._alerted_games:
                 continue
             self._alerted_games.add(p["game"])
+            self.blocked_games.add(p["game"])   # kill switch: auto-pause the compromised game
             alert = {
                 "ts": time.time(),
                 "account": f"game:{p['game']}",

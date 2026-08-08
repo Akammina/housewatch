@@ -64,6 +64,24 @@ platform and the monitor are decoupled. The engine keeps per-account running
 aggregates (expected return, variance, inter-bet gaps via Welford) so each event
 is scored in O(1) instead of rescanning history.
 
+## Containment: the kill switch
+
+Detecting an exploit isn't enough if it keeps paying out while an analyst sleeps.
+So when the integrity monitor flags a game, HouseWatch **auto-pauses** it: the game
+goes on a `/blocked` list, FairHouse polls that list, and refuses to open a new bet
+on a paused game (in-progress rounds are left alone so nobody is stranded). A `POST
+/unblock` clears it once the game is fixed.
+
+```
+integrity alert  ->  HouseWatch /blocked = [keno]  ->  FairHouse refuses new keno bets (HTTP 423)
+                                                        other games keep running
+```
+
+This is the difference between *watching* an attack and *stopping* it. Prevention
+(validate every input), detection (the monitors above), and this containment layer
+together mean a single bug can't cause a big, silent loss, which is the real goal,
+since no system is ever bug-free.
+
 ## Trying to fool it (red-team)
 
 The detectors were built by attacking them. `python -m simulator.redteam` runs a

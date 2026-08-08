@@ -93,6 +93,19 @@ async def _inject_forever(multiplier) -> None:
                     ts += 0.2
                     broadcast(engine.ingest(Bet(acc, g, stake,
                               round(stake * multiplier(g)), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
+        # once in a while, stage a game-integrity compromise so the kill switch shows:
+        # a game starts paying way too much, the integrity monitor pauses it...
+        if n % 8 == 0:
+            g = random.choice(["keno", "wheel", "roulette"])
+            for i in range(2600):
+                broadcast(engine.ingest(Bet(f"rng_{n}_{i % 40}", g, 2000, 6000,
+                          now + i * 0.001, f"rngd_{i % 40}", f"33.{n % 250}.{i % 40}.5")))
+                if i % 600 == 0:
+                    await asyncio.sleep(0)
+        elif n % 8 == 4:            # ...and a few cycles later, an analyst clears it
+            engine.blocked_games.clear()
+            engine._alerted_games.clear()
+
         if len(engine.store.accounts) > 400:  # keep memory + the dashboard bounded
             _reseed()
 
@@ -150,7 +163,22 @@ def alerts() -> list[dict]:
 
 @app.get("/summary")
 def summary() -> dict:
-    return engine.summary()
+    return {**engine.summary(), "blocked": sorted(engine.blocked_games)}
+
+
+@app.get("/blocked")
+def blocked() -> dict:
+    """The kill switch: games HouseWatch has auto-paused. The platform polls this
+    and refuses new bets on any game listed here."""
+    return {"games": sorted(engine.blocked_games)}
+
+
+@app.post("/unblock")
+def unblock() -> dict:
+    """Clear the pause (analyst action, after the game is fixed/reviewed)."""
+    engine.blocked_games.clear()
+    engine._alerted_games.clear()
+    return {"ok": True}
 
 
 @app.get("/")

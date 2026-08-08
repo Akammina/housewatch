@@ -157,6 +157,13 @@ def test_ip_hopping_ignores_normal_user():
     assert ip_hopping.detect(store.accounts["u"]) is None
 
 
+def test_kill_switch_blocks_compromised_game():
+    eng = Engine()
+    for i in range(2600):   # keno suddenly paying 3x -> integrity alert -> auto-pause
+        eng.ingest(Bet(f"k{i % 40}", "keno", 2000, 6000, ts=1e9 + i, device=f"d{i % 40}", ip=f"3.3.{i % 40}.5"))
+    assert "keno" in eng.blocked_games
+
+
 def test_engine_scores_and_alerts():
     eng = Engine()
     # ring of 3 sharing a device

@@ -65,6 +65,8 @@
     <div class="conn" id="conn">connecting…</div>
   </header>
 
+  <div id="killbar" style="display:none;margin:0 22px;padding:11px 16px;background:rgba(255,77,94,.14);border:1px solid var(--critical);border-radius:10px;color:var(--critical);font-weight:700;font-size:14px"></div>
+
   <section class="stats">
     <div class="stat"><div class="l">Accounts seen</div><div class="v" id="s-accounts">0</div></div>
     <div class="stat"><div class="l">Flagged</div><div class="v" id="s-flagged">0</div></div>
@@ -110,6 +112,11 @@ async function refresh(){
     $("s-critical").textContent = sum.critical;
     $("s-high").textContent = sum.high;
     $("s-medium").textContent = sum.medium;
+    const kb = $("killbar");
+    if (sum.blocked && sum.blocked.length) {
+      kb.style.display = "";
+      kb.textContent = "⛔ KILL SWITCH: paused " + sum.blocked.join(", ") + " (game integrity alert) — new bets on these games are refused";
+    } else { kb.style.display = "none"; }
     renderAccounts(accts);
   }catch(e){/* keep going */}
 }
