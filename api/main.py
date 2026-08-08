@@ -38,15 +38,27 @@ def broadcast(alerts: list[dict]) -> None:
             q.put_nowait(alert)
 
 
-@app.on_event("startup")
-async def seed_demo() -> None:
-    """On the hosted demo (SEED_DEMO=1), fill the dashboard on boot and keep
-    injecting fresh attacks so the live feed actually moves. Off for local dev."""
-    if not os.getenv("SEED_DEMO"):
-        return
-    from simulator.attack import generate, multiplier
+GAMES = ["dice", "coinflip", "limbo", "wheel", "roulette", "keno", "slots"]
+
+
+def _reseed() -> None:
+    """Start the demo fresh (also used to keep the hosted instance bounded)."""
+    global engine
+    from simulator.attack import generate
+    engine = Engine()
     for ev in generate():
         engine.ingest(Bet.from_json(ev))
+
+
+@app.on_event("startup")
+async def seed_demo() -> None:
+    """On the hosted demo (SEED_DEMO=1), fill the dashboard on boot and keep a
+    realistic stream going: mostly honest players, the occasional attack. Off for
+    local dev."""
+    if not os.getenv("SEED_DEMO"):
+        return
+    _reseed()
+    from simulator.attack import multiplier
     asyncio.create_task(_inject_forever(multiplier))
 
 
@@ -54,21 +66,34 @@ async def _inject_forever(multiplier) -> None:
     import random
     n = 0
     while True:
-        await asyncio.sleep(20)
+        await asyncio.sleep(12)
         n += 1
         now = time.time()
-        if random.random() < 0.5:   # a fresh bonus-abuse ring
-            dev = f"live_ring_{n}"
-            for r in range(random.randint(5, 7)):
-                for _ in range(4):
-                    broadcast(engine.ingest(Bet(f"live_promo_{n}_{r}", "dice", 1000,
-                              round(1000 * multiplier("dice")), now, dev, f"88.{n % 250}.0.9")))
-        else:                        # a fresh bot
-            acc, ts = f"live_bot_{n}", now
-            for _ in range(60):
-                ts += 0.2
-                broadcast(engine.ingest(Bet(acc, "dice", 5000,
-                          round(5000 * multiplier("dice")), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
+        # steady stream of honest players, so the flagged share stays realistic
+        for k in range(random.randint(3, 6)):
+            acc, dev, ip = f"live_user_{n}_{k}", f"lu_{n}_{k}", f"70.{n % 250}.{k}.{random.randint(2, 250)}"
+            ts = now - random.uniform(0, 40)
+            for _ in range(random.randint(30, 90)):
+                ts += random.lognormvariate(1.6, 0.8)
+                g = random.choice(GAMES)
+                stake = random.choice([10, 20, 50, 100]) * 100
+                engine.ingest(Bet(acc, g, stake, round(stake * multiplier(g)), ts, dev, ip))
+        # every so often, an actual attack, so the alert feed shows a fresh catch
+        if random.random() < 0.55:
+            if random.random() < 0.5:   # bonus-abuse ring
+                dev = f"live_ring_{n}"
+                for r in range(random.randint(5, 7)):
+                    for _ in range(4):
+                        broadcast(engine.ingest(Bet(f"live_promo_{n}_{r}", "dice", 1000,
+                                  round(1000 * multiplier("dice")), now, dev, f"88.{n % 250}.0.9")))
+            else:                        # a bot
+                acc, ts = f"live_bot_{n}", now
+                for _ in range(70):
+                    ts += 0.2
+                    broadcast(engine.ingest(Bet(acc, "dice", 5000,
+                              round(5000 * multiplier("dice")), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
+        if len(engine.store.accounts) > 400:  # keep memory + the dashboard bounded
+            _reseed()
 
 
 class BetIn(BaseModel):
