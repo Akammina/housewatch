@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import time
 
-from .detectors import bot_behavior, bot_timing, cohort, multi_account, platform, responsible, win_rate
+from .detectors import (
+    account_takeover, bot_behavior, bot_timing, cohort, ip_hopping,
+    multi_account, platform, responsible, win_rate,
+)
 from .events import Bet
 from .models import RiskProfile, Signal, level_for
 from .store import Store
@@ -71,7 +74,11 @@ class Engine:
     def _rescore(self, account: str) -> dict | None:
         acc = self.store.accounts[account]
         signals: list[Signal] = []
-        for detect in (win_rate.detect, bot_timing.detect, bot_behavior.detect, responsible.detect):
+        per_account = (
+            win_rate.detect, bot_timing.detect, bot_behavior.detect,
+            account_takeover.detect, ip_hopping.detect, responsible.detect,
+        )
+        for detect in per_account:
             s = detect(acc)
             if s:
                 signals.append(s)

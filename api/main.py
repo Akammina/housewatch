@@ -86,12 +86,13 @@ async def _inject_forever(multiplier) -> None:
                     for _ in range(4):
                         broadcast(engine.ingest(Bet(f"live_promo_{n}_{r}", "dice", 1000,
                                   round(1000 * multiplier("dice")), now, dev, f"88.{n % 250}.0.9")))
-            else:                        # a bot
+            else:                        # a bot (varied game/stake, so separate bots don't look like one ring)
                 acc, ts = f"live_bot_{n}", now
+                g, stake = random.choice(GAMES), random.choice([10, 20, 50, 100, 200]) * 100
                 for _ in range(70):
                     ts += 0.2
-                    broadcast(engine.ingest(Bet(acc, "dice", 5000,
-                              round(5000 * multiplier("dice")), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
+                    broadcast(engine.ingest(Bet(acc, g, stake,
+                              round(stake * multiplier(g)), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
         if len(engine.store.accounts) > 400:  # keep memory + the dashboard bounded
             _reseed()
 

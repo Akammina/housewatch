@@ -19,6 +19,8 @@ simulator injects synthetic fraud so you can watch the engine catch it live.
 | **Bot behaviour** | bots that fake human timing | A bot that randomises its delays still can't fake endurance (thousands of bets with no break) or stake variety (the exact same size every time). Neither fires on a human grinder. |
 | **Multi-accounting** | rings sharing hardware | Links accounts that share a device fingerprint or IP (union-find over the graph), then flags clusters big enough to be a ring. |
 | **Coordinated cohorts** | rings that rotate fingerprints | Rotating device/IP defeats hardware linkage, so this links on *behaviour* instead: accounts that play the same game at the same stake in the same way are a coordinated cohort even with different fingerprints. |
+| **Account takeover** | stolen logins | An account with an established history from one device, then a new device that starts betting far larger, is the classic hijack pattern. |
+| **IP hopping** | proxy/VPN rotation, shared accounts | One account betting from many different IPs is rotating proxies or being shared. |
 | **Loss-chasing** | player harm (responsible gambling) | Measures the *rate* of stake increases right after a loss. A chaser does it almost every time; a player with varied stakes doesn't. |
 | **Game integrity** (platform-level) | a compromised RNG | Runs the same z-score on each game's *total* RTP across all players. If a game pays above its designed return across the board, it's broken, no matter who's winning. |
 
@@ -69,7 +71,7 @@ diverse honest population plus a wide set of attack variants and grades two numb
 at once, because a detector that catches everything by flagging everyone is useless:
 
 ```
-recall on catchable attacks : 10/10
+recall on catchable attacks : 12/12
 normal players              : 300  (x4 random seeds)
 false positives             : 0
 ```
@@ -133,7 +135,8 @@ housewatch/
     store.py             in-memory state + streaming aggregates
     engine.py            runs detectors, combines signals, raises alerts
     detectors/           win_rate, bot_timing, bot_behavior, multi_account,
-                         cohort, responsible, platform
+                         cohort, account_takeover, ip_hopping,
+                         responsible, platform
   api/main.py            FastAPI: /ingest, SSE, dashboard
   simulator/
     attack.py            synthetic normal players + attackers

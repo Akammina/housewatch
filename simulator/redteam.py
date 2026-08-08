@@ -108,6 +108,18 @@ def run_attacks(eng):
     feed(eng, "bot_mimic", dice, 300, human_gaps(300), lambda: random.choice([10, 20, 50]) * 100, device="b4", ip="9.3.0.4")
     acct("bot human-mimic (low volume)", False, "bot_mimic")
 
+    # account takeover: built up on one device, then hijacked from another with big stakes
+    feed(eng, "victim_ato", dice, 60, human_gaps(60), fixed(700), device="devA", ip="10.10.0.1")
+    feed(eng, "victim_ato", dice, 6, human_gaps(6), fixed(9000), device="devB", ip="66.66.0.9", t0=1_700_005_000.0)
+    acct("account takeover (new device + big stakes)", True, "victim_ato")
+
+    # IP hopping: one account cycling through many IPs (proxy rotation)
+    ts = 1_700_000_000.0
+    for i in range(40):
+        ts += random.uniform(3, 10)
+        eng.ingest(Bet("proxy_user", "dice", 1500, round(1500 * multiplier("dice")), ts, "pdev", f"200.10.{i}.5"))
+    acct("IP hopping (proxy rotation)", True, "proxy_user")
+
     # multi-accounting
     for r in range(6):
         feed(eng, f"ring_dev_{r}", dice, 6, human_gaps(6), fixed(1000), device="RINGDEV", ip=f"9.4.0.{r}")

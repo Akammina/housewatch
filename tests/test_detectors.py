@@ -3,7 +3,10 @@ accounts get flagged and honest ones don't (no false positives)."""
 from housewatch.engine import Engine
 from housewatch.events import Bet
 from housewatch.store import Store
-from housewatch.detectors import bot_behavior, bot_timing, cohort, multi_account, platform, responsible, win_rate
+from housewatch.detectors import (
+    account_takeover, bot_behavior, bot_timing, cohort, ip_hopping,
+    multi_account, platform, responsible, win_rate,
+)
 
 
 def _acc(store: Store, bets: list[Bet]):
@@ -120,6 +123,38 @@ def test_cohort_ignores_diverse_players():
             store.add_bet(Bet(f"u{u}", R.choice(["dice", "slots", "keno"]), R.choice([1000, 2000, 5000]),
                               0, ts=u, device=f"d{u}", ip=f"2.2.2.{u}"))
     assert cohort.detect(store) == {}
+
+
+def test_account_takeover_flags_new_device_with_big_stakes():
+    store = Store()
+    for i in range(60):
+        store.add_bet(Bet("v", "dice", 700, 700, ts=1e9 + i * 5, device="A", ip="1.1.1.1"))
+    for i in range(6):
+        store.add_bet(Bet("v", "dice", 9000, 0, ts=1e9 + 5000 + i * 5, device="B", ip="2.2.2.2"))
+    assert account_takeover.detect(store.accounts["v"]) is not None
+
+
+def test_account_takeover_ignores_second_device_same_stakes():
+    store = Store()
+    for i in range(60):
+        store.add_bet(Bet("v", "dice", 1000, 1000, ts=1e9 + i * 5, device="A", ip="1.1.1.1"))
+    for i in range(6):   # second device, but normal stakes -> not a takeover
+        store.add_bet(Bet("v", "dice", 1000, 0, ts=1e9 + 5000 + i * 5, device="B", ip="2.2.2.2"))
+    assert account_takeover.detect(store.accounts["v"]) is None
+
+
+def test_ip_hopping_flags_many_ips():
+    store = Store()
+    for i in range(40):
+        store.add_bet(Bet("proxy", "dice", 1000, 0, ts=i, device="d", ip=f"5.5.5.{i}"))
+    assert ip_hopping.detect(store.accounts["proxy"]) is not None
+
+
+def test_ip_hopping_ignores_normal_user():
+    store = Store()
+    for i in range(60):
+        store.add_bet(Bet("u", "dice", 1000, 0, ts=i, device="d", ip="1.1.1.1" if i % 2 else "1.1.1.2"))
+    assert ip_hopping.detect(store.accounts["u"]) is None
 
 
 def test_engine_scores_and_alerts():
