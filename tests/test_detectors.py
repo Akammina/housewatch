@@ -1,0 +1,84 @@
+"""Detector + engine tests. Each builds a small scenario and checks the right
+accounts get flagged and honest ones don't (no false positives)."""
+from housewatch.engine import Engine
+from housewatch.events import Bet
+from housewatch.store import Store
+from housewatch.detectors import bot_timing, multi_account, responsible, win_rate
+
+
+def _acc(store: Store, bets: list[Bet]):
+    for b in bets:
+        store.add_bet(b)
+    return store.accounts[bets[0].account]
+
+
+def test_win_rate_flags_impossible_returns():
+    store = Store()
+    # 200 dice bets that always pay 2x -> ~200% RTP, far above the 99% baseline
+    acc = _acc(store, [Bet("cheat", "dice", 1000, 2000, ts=i) for i in range(200)])
+    sig = win_rate.detect(acc)
+    assert sig is not None and sig.category == "fraud"
+
+
+def test_win_rate_ignores_honest_play():
+    store = Store()
+    # alternate 1.98x win / 0 loss -> ~99% RTP, exactly expected
+    bets = [Bet("honest", "dice", 1000, 1980 if i % 2 else 0, ts=i) for i in range(400)]
+    acc = _acc(store, bets)
+    assert win_rate.detect(acc) is None
+
+
+def test_bot_timing_flags_metronome():
+    store = Store()
+    acc = _acc(store, [Bet("bot", "dice", 1000, 0, ts=i * 0.2) for i in range(60)])  # exact 200ms gaps
+    sig = bot_timing.detect(acc)
+    assert sig is not None and sig.category == "bot"
+
+
+def test_bot_timing_ignores_humans():
+    store = Store()
+    gaps = [0, 3, 9, 2, 15, 4, 22, 1, 8, 30] * 6  # irregular human gaps
+    ts, bets = 0.0, []
+    for i, g in enumerate(gaps):
+        ts += g
+        bets.append(Bet("human", "dice", 1000, 0, ts=ts))
+    assert bot_timing.detect(_acc(store, bets)) is None
+
+
+def test_multi_account_flags_ring():
+    store = Store()
+    for r in range(4):  # 4 accounts, one shared device
+        store.add_bet(Bet(f"ring{r}", "dice", 1000, 0, ts=r, device="shared_dev", ip=f"1.1.1.{r}"))
+    store.add_bet(Bet("loner", "dice", 1000, 0, ts=9, device="own_dev", ip="9.9.9.9"))
+    signals = multi_account.detect(store)
+    assert {f"ring{r}" for r in range(4)} <= set(signals)
+    assert "loner" not in signals
+
+
+def test_responsible_flags_chaser_not_random():
+    store = Store()
+    # chaser: doubles the stake after every loss
+    ts, stake, bets = 0.0, 1000, []
+    for _ in range(30):
+        ts += 5
+        bets.append(Bet("chaser", "dice", stake, 0, ts=ts))  # all losses
+        stake *= 2
+    assert responsible.detect(_acc(store, bets)) is not None
+
+    store2 = Store()
+    # random stakes, never a deliberate chase pattern
+    stakes = [1000, 2000, 1000, 5000, 1000, 2000, 1000] * 5
+    bets2 = [Bet("varied", "dice", s, 0, ts=i * 5) for i, s in enumerate(stakes)]
+    assert responsible.detect(_acc(store2, bets2)) is None
+
+
+def test_engine_scores_and_alerts():
+    eng = Engine()
+    # ring of 3 sharing a device
+    for r in range(3):
+        for _ in range(3):
+            eng.ingest(Bet(f"promo{r}", "dice", 1000, 0, ts=r, device="D", ip="1.1.1.1"))
+    ring = eng.profiles["promo0"]
+    assert ring.level in ("high", "critical")
+    assert any(a["account"].startswith("promo") for a in eng.alerts)
+    assert eng.summary()["flagged"] >= 3

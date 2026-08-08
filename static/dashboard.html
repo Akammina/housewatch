@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HouseWatch - risk console</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131822; --panel2:#1a2130; --line:#232c3d; --ink:#e6ebf2;
+    --muted:#8794a8; --faint:#5b6678; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+    --critical:#ff4d5e; --high:#ff9838; --medium:#f5c451; --ok:#33d17f;
+    --fraud:#ff4d5e; --bot:#a879ff; --abuse:#ff9838; --player_harm:#33c0d1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 1.8s infinite}
+  @keyframes pulse{50%{opacity:.4}}
+  .brand h1{font-size:17px;margin:0;letter-spacing:.02em}
+  .brand span{color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.14em}
+  .conn{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:16px 22px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:14px 16px}
+  .stat .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+  .stat .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+  .stat.crit .v{color:var(--critical)} .stat.high .v{color:var(--high)} .stat.med .v{color:var(--medium)}
+  main{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;padding:0 22px 22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .card h2{margin:0;padding:13px 16px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--line)}
+  .acct{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .acct:last-child{border-bottom:none}
+  .acct-head{display:flex;align-items:center;gap:10px}
+  .acct-id{font-family:var(--mono);font-size:13px;font-weight:600}
+  .badge{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px}
+  .b-critical{background:rgba(255,77,94,.16);color:var(--critical)}
+  .b-high{background:rgba(255,152,56,.16);color:var(--high)}
+  .b-medium{background:rgba(245,196,81,.16);color:var(--medium)}
+  .cats{display:flex;gap:6px;margin:7px 0}
+  .cat{font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:5px;font-weight:700}
+  .c-fraud{background:rgba(255,77,94,.15);color:var(--fraud)}
+  .c-bot{background:rgba(168,121,255,.15);color:var(--bot)}
+  .c-abuse{background:rgba(255,152,56,.15);color:var(--abuse)}
+  .c-player_harm{background:rgba(51,192,209,.15);color:var(--player_harm)}
+  .reason{font-size:12.5px;color:var(--muted);line-height:1.5;margin:3px 0 0}
+  .feed{overflow-y:auto;max-height:70vh}
+  .alert{padding:10px 16px;border-bottom:1px solid var(--line);border-left:3px solid var(--faint);animation:flash .8s}
+  .alert.l-critical{border-left-color:var(--critical)} .alert.l-high{border-left-color:var(--high)} .alert.l-medium{border-left-color:var(--medium)}
+  @keyframes flash{from{background:rgba(255,255,255,.06)}to{background:transparent}}
+  .alert .top{display:flex;align-items:baseline;gap:8px}
+  .alert .acct-id{font-size:12.5px}
+  .alert .score{margin-left:auto;font-family:var(--mono);font-weight:700;font-size:13px}
+  .alert .r{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45}
+  .alert .t{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .empty{padding:26px 16px;color:var(--faint);text-align:center;font-size:13px}
+  @media(max-width:820px){.stats{grid-template-columns:repeat(2,1fr)}main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <div><h1>HouseWatch</h1><span>betting-platform risk console</span></div>
+    </div>
+    <div class="conn" id="conn">connecting…</div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><div class="l">Accounts seen</div><div class="v" id="s-accounts">0</div></div>
+    <div class="stat"><div class="l">Flagged</div><div class="v" id="s-flagged">0</div></div>
+    <div class="stat crit"><div class="l">Critical</div><div class="v" id="s-critical">0</div></div>
+    <div class="stat high"><div class="l">High</div><div class="v" id="s-high">0</div></div>
+    <div class="stat med"><div class="l">Medium</div><div class="v" id="s-medium">0</div></div>
+  </section>
+
+  <main>
+    <section class="card">
+      <h2>Flagged accounts &middot; highest risk first</h2>
+      <div id="accounts"><div class="empty">No accounts flagged yet.</div></div>
+    </section>
+    <section class="card">
+      <h2>Live alerts</h2>
+      <div class="feed" id="feed"><div class="empty">Waiting for events…</div></div>
+    </section>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const catClass = (c) => "cat c-" + c;
+
+function renderAccounts(rows){
+  const box = $("accounts");
+  if(!rows.length){ box.innerHTML = '<div class="empty">No accounts flagged yet.</div>'; return; }
+  box.innerHTML = rows.map(a => `
+    <div class="acct">
+      <div class="acct-head">
+        <span class="acct-id">${a.account}</span>
+        <span class="badge b-${a.level}">${a.score} &middot; ${a.level}</span>
+      </div>
+      <div class="cats">${a.categories.map(c=>`<span class="${catClass(c)}">${c.replace('_',' ')}</span>`).join("")}</div>
+      ${a.reasons.map(r=>`<p class="reason">${r.reason}</p>`).join("")}
+    </div>`).join("");
+}
+
+async function refresh(){
+  try{
+    const [sum, accts] = await Promise.all([fetch("/summary").then(r=>r.json()), fetch("/accounts").then(r=>r.json())]);
+    $("s-accounts").textContent = sum.accounts;
+    $("s-flagged").textContent = sum.flagged;
+    $("s-critical").textContent = sum.critical;
+    $("s-high").textContent = sum.high;
+    $("s-medium").textContent = sum.medium;
+    renderAccounts(accts);
+  }catch(e){/* keep going */}
+}
+
+function addAlert(a){
+  const feed = $("feed");
+  if(feed.querySelector(".empty")) feed.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "alert l-" + a.level;
+  const time = new Date(a.ts*1000).toLocaleTimeString();
+  el.innerHTML = `<div class="top"><span class="acct-id">${a.account}</span>
+      <span class="${catClass(a.category)}">${a.category.replace('_',' ')}</span>
+      <span class="score">${a.score}</span></div>
+    <div class="r">${a.reason}</div><div class="t">${time}</div>`;
+  feed.prepend(el);
+  while(feed.children.length > 60) feed.lastChild.remove();
+}
+
+const es = new EventSource("/stream");
+es.onopen = () => $("conn").textContent = "● live";
+es.onerror = () => $("conn").textContent = "○ reconnecting…";
+es.onmessage = (e) => { addAlert(JSON.parse(e.data)); refresh(); };
+
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>
