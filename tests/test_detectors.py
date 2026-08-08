@@ -3,7 +3,7 @@ accounts get flagged and honest ones don't (no false positives)."""
 from housewatch.engine import Engine
 from housewatch.events import Bet
 from housewatch.store import Store
-from housewatch.detectors import bot_timing, multi_account, platform, responsible, win_rate
+from housewatch.detectors import bot_behavior, bot_timing, cohort, multi_account, platform, responsible, win_rate
 
 
 def _acc(store: Store, bets: list[Bet]):
@@ -14,8 +14,8 @@ def _acc(store: Store, bets: list[Bet]):
 
 def test_win_rate_flags_impossible_returns():
     store = Store()
-    # 200 dice bets that always pay 2x -> ~200% RTP, far above the 99% baseline
-    acc = _acc(store, [Bet("cheat", "dice", 1000, 2000, ts=i) for i in range(200)])
+    # 350 dice bets that always pay 2x -> ~200% RTP, far above the 99% baseline
+    acc = _acc(store, [Bet("cheat", "dice", 1000, 2000, ts=i) for i in range(350)])
     sig = win_rate.detect(acc)
     assert sig is not None and sig.category == "fraud"
 
@@ -84,6 +84,42 @@ def test_platform_monitor_catches_distributed_exploit():
         store.add_bet(Bet(f"h{i % 40}", "dice", 1000, 1980 if i % 2 else 0, ts=i, device="hd"))
     games = {a["game"] for a in platform.detect(store)}
     assert "slots" in games and "dice" not in games
+
+
+def test_bot_behavior_catches_tireless_and_uniform():
+    store = Store()
+    # 1500 bets, 2s apart, never a break, one stake -> endurance + uniform
+    acc = _acc(store, [Bet("bot", "dice", 1000, 0, ts=i * 2.0) for i in range(1500)])
+    assert bot_behavior.detect(acc) is not None
+
+
+def test_bot_behavior_ignores_human_grinder():
+    store = Store()
+    ts, bets = 0.0, []
+    for i in range(700):
+        ts += 300 if i % 50 == 0 else 3       # a real break every 50 bets
+        bets.append(Bet("grinder", "dice", (i % 3 + 1) * 1000, 0, ts=ts))  # varied stakes
+    assert bot_behavior.detect(_acc(store, bets)) is None
+
+
+def test_cohort_flags_identical_signature_ring():
+    store = Store()
+    for r in range(6):                        # 6 accounts, unique device/IP, identical behaviour
+        for _ in range(5):
+            store.add_bet(Bet(f"c{r}", "dice", 1000, 0, ts=r, device=f"u{r}", ip=f"1.1.1.{r}"))
+    flagged = [a for a in cohort.detect(store) if a.startswith("c")]
+    assert len(flagged) == 6
+
+
+def test_cohort_ignores_diverse_players():
+    import random as R
+    R.seed(1)
+    store = Store()
+    for u in range(10):
+        for _ in range(20):
+            store.add_bet(Bet(f"u{u}", R.choice(["dice", "slots", "keno"]), R.choice([1000, 2000, 5000]),
+                              0, ts=u, device=f"d{u}", ip=f"2.2.2.{u}"))
+    assert cohort.detect(store) == {}
 
 
 def test_engine_scores_and_alerts():

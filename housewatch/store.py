@@ -14,7 +14,7 @@ display. A production build would back this with a database.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from .events import Bet
 from .games import stats_for
@@ -38,6 +38,9 @@ class AccountState:
         self.gap_n: int = 0
         self.gap_mean: float = 0.0
         self._gap_m2: float = 0.0
+        self.max_gap: float = 0.0            # longest pause (a human takes breaks; a bot doesn't)
+        self.stake_counts: Counter[int] = Counter()  # stake spread (bots often bet one size)
+        self.game_counts: Counter[str] = Counter()
 
     def observe(self, bet: Bet) -> None:
         if not self.bets:
@@ -54,8 +57,12 @@ class AccountState:
             delta = gap - self.gap_mean
             self.gap_mean += delta / self.gap_n
             self._gap_m2 += delta * (gap - self.gap_mean)
+            if gap > self.max_gap:
+                self.max_gap = gap
         self._prev_ts = bet.ts
         self.last_seen = bet.ts
+        self.stake_counts[bet.stake_cents] += 1
+        self.game_counts[bet.game] += 1
         if bet.device:
             self.devices.add(bet.device)
         if bet.ip:
@@ -71,6 +78,30 @@ class AccountState:
         if self.gap_n < 2 or self.gap_mean <= 0:
             return None
         return math.sqrt(self._gap_m2 / self.gap_n) / self.gap_mean
+
+    @property
+    def span(self) -> float:
+        return self.last_seen - self.first_seen
+
+    @property
+    def top_stake_share(self) -> float:
+        """Fraction of bets placed at the single most-used stake (1.0 = one size only)."""
+        if not self.stake_counts:
+            return 0.0
+        return self.stake_counts.most_common(1)[0][1] / self.n_bets
+
+    @property
+    def modal_stake(self) -> int:
+        return self.stake_counts.most_common(1)[0][0] if self.stake_counts else 0
+
+    @property
+    def dominant_game(self) -> str:
+        return self.game_counts.most_common(1)[0][0] if self.game_counts else ""
+
+    @property
+    def is_narrow(self) -> bool:
+        """Plays essentially one game at one stake, the way a coordinated bot does."""
+        return self.n_bets >= 3 and self.top_stake_share >= 0.8 and len(self.game_counts) <= 2
 
 
 class GameStats:

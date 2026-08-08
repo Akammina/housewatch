@@ -19,7 +19,7 @@ import math
 from ..models import Signal
 from ..store import AccountState
 
-MIN_BETS = 150   # need a meaningful sample before the z-score means anything
+MIN_BETS = 300   # need a solid sample: high-variance games can skew a short run
 Z_FLAG = 5.0     # ~1 in 3.5 million under honest play
 
 

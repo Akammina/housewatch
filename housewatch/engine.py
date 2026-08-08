@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-from .detectors import bot_timing, multi_account, platform, responsible, win_rate
+from .detectors import bot_behavior, bot_timing, cohort, multi_account, platform, responsible, win_rate
 from .events import Bet
 from .models import RiskProfile, Signal, level_for
 from .store import Store
@@ -30,14 +30,20 @@ class Engine:
         self.profiles: dict[str, RiskProfile] = {}
         self.alerts: list[dict] = []            # recent alerts (bounded)
         self.multi_signals: dict[str, Signal] = {}
+        self.cohort_signals: dict[str, Signal] = {}
         self._prev_detectors: dict[str, set[str]] = {}
+        self._prev_global: set[str] = set()
         self._alerted_games: set[str] = set()
 
     def ingest(self, bet: Bet) -> list[dict]:
         self.store.add_bet(bet)
-        # linkage is global; refresh it, then rescore the bettor and any ring members
+        # global detectors (linkage + behavioural cohorts). Rescore the current bettor
+        # plus any account that just entered a ring/cohort, not every member every time.
         self.multi_signals = multi_account.detect(self.store)
-        touched = {bet.account} | set(self.multi_signals)
+        self.cohort_signals = cohort.detect(self.store)
+        new_global = set(self.multi_signals) | set(self.cohort_signals)
+        touched = {bet.account} | (new_global - self._prev_global)
+        self._prev_global = new_global
         alerts = [a for a in (self._rescore(acc) for acc in touched) if a]
         alerts += self._platform_alerts()
         return alerts
@@ -65,12 +71,14 @@ class Engine:
     def _rescore(self, account: str) -> dict | None:
         acc = self.store.accounts[account]
         signals: list[Signal] = []
-        for detect in (win_rate.detect, bot_timing.detect, responsible.detect):
+        for detect in (win_rate.detect, bot_timing.detect, bot_behavior.detect, responsible.detect):
             s = detect(acc)
             if s:
                 signals.append(s)
         if account in self.multi_signals:
             signals.append(self.multi_signals[account])
+        if account in self.cohort_signals:
+            signals.append(self.cohort_signals[account])
 
         score = combine(signals)
         prev = self.profiles.get(account)

@@ -15,10 +15,12 @@ simulator injects synthetic fraud so you can watch the engine catch it live.
 | Detector | Catches | How it works |
 |----------|---------|--------------|
 | **Win-rate anomaly** | cheating / bug exploits | Every game's true RTP and return variance were measured in the FairHouse [math lab](https://github.com/Akammina/FairHouse-/tree/main/math-lab). Given how many bets an account has placed, HouseWatch z-scores its realised return against that. Sitting 6+ sigma above expected isn't luck. |
-| **Bot timing** | automated play | Humans bet irregularly; bots don't. Flags near-constant inter-bet gaps (machine-regular) or a superhuman sustained bet rate. |
-| **Multi-accounting** | bonus-abuse rings | Links accounts that share a device fingerprint or IP (union-find over the graph), then flags any cluster big enough to be a ring rather than a coincidence. |
-| **Loss-chasing** | player harm (responsible gambling) | Measures the *rate* of stake increases right after a loss. A chaser does it almost every time; a player with varied stakes doesn't. Tuned to avoid false positives. |
-| **Game integrity** (platform-level) | distributed / hidden cheating | Runs the same z-score on each game's *total* RTP across all players. Catches exploits that are spread thin across accounts or buried in a high-variance game, where no single account looks bad. |
+| **Bot timing** | fast / regular bots | Humans bet irregularly; bots don't. Flags near-constant inter-bet gaps or a superhuman sustained bet rate. |
+| **Bot behaviour** | bots that fake human timing | A bot that randomises its delays still can't fake endurance (thousands of bets with no break) or stake variety (the exact same size every time). Neither fires on a human grinder. |
+| **Multi-accounting** | rings sharing hardware | Links accounts that share a device fingerprint or IP (union-find over the graph), then flags clusters big enough to be a ring. |
+| **Coordinated cohorts** | rings that rotate fingerprints | Rotating device/IP defeats hardware linkage, so this links on *behaviour* instead: accounts that play the same game at the same stake in the same way are a coordinated cohort even with different fingerprints. |
+| **Loss-chasing** | player harm (responsible gambling) | Measures the *rate* of stake increases right after a loss. A chaser does it almost every time; a player with varied stakes doesn't. |
+| **Game integrity** (platform-level) | a compromised RNG | Runs the same z-score on each game's *total* RTP across all players. If a game pays above its designed return across the board, it's broken, no matter who's winning. |
 
 Each account gets a **0-100 risk score** with a severity level and a plain-English
 reason for every signal. Explainability is the point: an analyst has to trust why
@@ -62,21 +64,31 @@ is scored in O(1) instead of rescanning history.
 
 ## Trying to fool it (red-team)
 
-`python -m simulator.evade` runs an obvious attack and a smart evasion against each
-detector. Being honest about the limits matters more than pretending there are none:
+The detectors were built by attacking them. `python -m simulator.redteam` runs a
+diverse honest population plus a wide set of attack variants and grades two numbers
+at once, because a detector that catches everything by flagging everyone is useless:
 
-| Attack | Result |
-|--------|--------|
-| Obvious cheat / bot / ring | caught |
-| **Stealth cheat** (tiny edge) | evades - a small edge over few bets is below the noise floor; it's a statistical limit, detection improves as more bets accumulate |
-| **Cheat on a high-variance game** | evades per-account - the variance drowns the signal |
-| **Bot with human-like jitter** | evades timing analysis - robust bot detection needs behavioural signals, not just timing |
-| **Distributed ring** (unique device + IP per account) | evades linkage - nothing to join on without behavioural or payment-graph signals |
-| **Distributed exploit across many accounts** | **caught by the platform-level game-integrity monitor**, even though every account evades the per-account detectors |
+```
+recall on catchable attacks : 10/10
+normal players              : 300  (x4 random seeds)
+false positives             : 0
+```
 
-The takeaway that shaped the design: per-account detection has blind spots, so
-HouseWatch layers a platform-level monitor on top. A cheat can hide *who* is winning,
-but it can't hide that a game is paying more than it should.
+Each attack that gets through is labelled as a **fundamental limit**, not hidden. A
+tool that claims to catch everything is a red flag; being precise about what it can't
+do is the honest (and more useful) position:
+
+| Evasion that gets through | Why, and what would be needed |
+|---------------------------|-------------------------------|
+| **Stealth cheat** (tiny edge) | A small edge over few bets is below the statistical noise floor. Detection improves as more bets accumulate; it's a data limit, not a bug. |
+| **Single-account cheat on a high-variance game** | The variance drowns the signal for one account. Volume or the platform monitor is needed. |
+| **Distributed exploit with varied signatures** | Rotating fingerprints *and* varying stake/game per account defeats both hardware and behavioural linkage. Would need a payment/KYC graph. |
+| **Human-mimicking bot** (breaks, varied stakes, low volume) | Indistinguishable from a person server-side. Would need client-side behavioural biometrics. |
+
+Each round of red-teaming drove a hardening: bots that fake timing are caught on
+endurance and stake uniformity; rings that rotate fingerprints are caught on
+behavioural cohorts; distributed cheating is caught by the platform-level monitor.
+Layered detection, because any single detector can be evaded.
 
 ## Run it
 
@@ -88,6 +100,7 @@ pytest                                  # detector + engine tests
 uvicorn api.main:app --port 8000        # engine + dashboard at http://localhost:8000
 python -m simulator.attack              # inject synthetic traffic + attacks
 #   add --delay 0.02 to watch alerts land on the dashboard live
+python -m simulator.redteam             # the full red-team + false-positive scorecard
 ```
 
 Open `http://localhost:8000` and watch the ring, bot, cheater, and chaser get
@@ -119,9 +132,13 @@ housewatch/
     games.py             per-game RTP + return std (from the math lab)
     store.py             in-memory state + streaming aggregates
     engine.py            runs detectors, combines signals, raises alerts
-    detectors/           win_rate, bot_timing, multi_account, responsible
+    detectors/           win_rate, bot_timing, bot_behavior, multi_account,
+                         cohort, responsible, platform
   api/main.py            FastAPI: /ingest, SSE, dashboard
-  simulator/attack.py    synthetic normal players + attackers
+  simulator/
+    attack.py            synthetic normal players + attackers
+    evade.py             obvious attack vs smart evasion, per detector
+    redteam.py           full coverage + false-positive scorecard
   static/dashboard.html  the live analyst console
   tests/                 detector + engine tests
 ```
