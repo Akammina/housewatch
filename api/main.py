@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -30,6 +32,45 @@ subscribers: set[asyncio.Queue] = set()
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
+def broadcast(alerts: list[dict]) -> None:
+    for alert in alerts:
+        for q in list(subscribers):
+            q.put_nowait(alert)
+
+
+@app.on_event("startup")
+async def seed_demo() -> None:
+    """On the hosted demo (SEED_DEMO=1), fill the dashboard on boot and keep
+    injecting fresh attacks so the live feed actually moves. Off for local dev."""
+    if not os.getenv("SEED_DEMO"):
+        return
+    from simulator.attack import generate, multiplier
+    for ev in generate():
+        engine.ingest(Bet.from_json(ev))
+    asyncio.create_task(_inject_forever(multiplier))
+
+
+async def _inject_forever(multiplier) -> None:
+    import random
+    n = 0
+    while True:
+        await asyncio.sleep(20)
+        n += 1
+        now = time.time()
+        if random.random() < 0.5:   # a fresh bonus-abuse ring
+            dev = f"live_ring_{n}"
+            for r in range(random.randint(5, 7)):
+                for _ in range(4):
+                    broadcast(engine.ingest(Bet(f"live_promo_{n}_{r}", "dice", 1000,
+                              round(1000 * multiplier("dice")), now, dev, f"88.{n % 250}.0.9")))
+        else:                        # a fresh bot
+            acc, ts = f"live_bot_{n}", now
+            for _ in range(60):
+                ts += 0.2
+                broadcast(engine.ingest(Bet(acc, "dice", 5000,
+                          round(5000 * multiplier("dice")), ts, f"live_botdev_{n}", f"91.{n % 250}.0.7")))
+
+
 class BetIn(BaseModel):
     account: str
     game: str = "unknown"
@@ -43,9 +84,7 @@ class BetIn(BaseModel):
 @app.post("/ingest")
 async def ingest(bet: BetIn) -> dict:
     alerts = engine.ingest(Bet(**bet.model_dump()))
-    for alert in alerts:
-        for q in list(subscribers):
-            q.put_nowait(alert)
+    broadcast(alerts)
     return {"ok": True, "new_alerts": len(alerts)}
 
 

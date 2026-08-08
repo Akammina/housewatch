@@ -6,3 +6,6 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SEED_DEMO       # auto-fill the dashboard on boot so the live demo isn't empty
+        value: "1"
